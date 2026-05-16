@@ -14,10 +14,12 @@ def tokenizer(input_str):
     punct = string.punctuation
     trans = str.maketrans("", "", punct)
     clean_lo_input = lo_input.translate(trans)
-    word_list = clean_lo_input.split(" ")
+    word_list = clean_lo_input.split()
     token_list = []
     for word in word_list:
         if word not in stopwords_list:
             token = stemmer.stem(word)
             token_list.append(token)
     return token_list
+
+
