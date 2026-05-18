@@ -5,13 +5,15 @@ import re
 from load_movies import movie_loader
 import json
 from itertools import islice
+from utils import wd
 
 
-cache_path = "/home/migueldor/rag-search-engine/cache"
+
+cache_path = os.path.join(wd, "cache")
 embeddings_path = os.path.join(cache_path, "movie_embeddings.npy")
 chunk_embeddings_path = os.path.join(cache_path, "chunk_embeddings.npy")
 chunk_metadata_path = os.path.join(cache_path, "chunk_metadata.json")
-movie_file_path = "/home/migueldor/rag-search-engine/data/movies.json"
+movie_file_path = os.path.join(wd, "data", "movies.json")
 
 def verify_model():
     my_semantic_search = SemanticSearch()

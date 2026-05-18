@@ -1,5 +1,6 @@
+import json
 import os
-
+from sentence_transformers import CrossEncoder
 from inverted_index import InvertedIndex
 from lib.semantic_search import ChunkedSemanticSearch
 from load_movies import movie_loader
@@ -8,104 +9,10 @@ from dotenv import load_dotenv
 from google import genai
 import time
 from google.genai.errors import ServerError
+from utils import wd
+from gemini_funcs import gemini_spell_checker, gemini_rewriter, gemini_expander, gemini_reranker, gemini_reranker_batch
 
-load_dotenv()
-api_key = os.environ.get("GEMINI_API_KEY")
-if not api_key:
-    raise RuntimeError("GEMINI_API_KEY environment variable not set")
-
-
-def gemini_spell_checker(query):
-    client = genai.Client(api_key=api_key)
-
-    prompt = f"""Fix any spelling errors in the user-provided movie search query below.
-        Correct only clear, high-confidence typos. Do not rewrite, add, remove, or reorder words.
-        Preserve punctuation and capitalization unless a change is required for a typo fix.
-        If there are no spelling errors, or if you're unsure, output the original query unchanged.
-        Output only the final query text, nothing else.
-        User query: "{query}"
-        """
-    model = 'gemma-4-31b-it'
-    response = client.models.generate_content(
-        model=model, contents=prompt
-    )
-    return response.text
-
-def gemini_rewriter(query):
-    client = genai.Client(api_key=api_key)
-
-    prompt = f"""Rewrite the user-provided movie search query below to be more specific and searchable.
-
-        Consider:
-        - Common movie knowledge (famous actors, popular films)
-        - Genre conventions (horror = scary, animation = cartoon)
-        - Keep the rewritten query concise (under 10 words)
-        - It should be a Google-style search query, specific enough to yield relevant results
-        - Don't use boolean logic
-
-        Examples:
-        - "that bear movie where leo gets attacked" -> "The Revenant Leonardo DiCaprio bear attack"
-        - "movie about bear in london with marmalade" -> "Paddington London marmalade"
-        - "scary movie with bear from few years ago" -> "bear horror movie 2015-2020"
-
-        If you cannot improve the query, output the original unchanged.
-        Output only the rewritten query text, nothing else.
-
-        User query: "{query}"
-        """
-    
-    model = 'gemma-4-31b-it'
-    response = client.models.generate_content(
-        model=model, contents=prompt
-    )
-    return response.text
-
-def gemini_expander(query):
-    client = genai.Client(api_key=api_key)
-
-    prompt = f"""Expand the user-provided movie search query below with related terms.
-
-        Add synonyms and related concepts that might appear in movie descriptions.
-        Keep expansions relevant and focused.
-        Output only the additional terms; they will be appended to the original query.
-
-        Examples:
-        - "scary bear movie" -> "scary horror grizzly bear movie terrifying film"
-        - "action movie with bear" -> "action thriller bear chase fight adventure"
-        - "comedy with bear" -> "comedy funny bear humor lighthearted"
-
-        User query: "{query}"
-        """
-    model = 'gemma-4-31b-it'
-    response = client.models.generate_content(
-        model=model, contents=prompt
-    )
-    return response.text
-
-def gemini_reranker(query, doc):
-    client = genai.Client(api_key=api_key)
-
-    prompt = f"""Rate how well this movie matches the search query.
-
-        Query: "{query}"
-        Movie: {doc['title']} - {doc['description']}
-
-        Consider:
-        - Direct relevance to query
-        - User intent (what they're looking for)
-        - Content appropriateness
-
-        Rate 0-10 (10 = perfect match) consider it to be a range of floats.
-        Output ONLY the number in your response, no other text or explanation.
-
-        Score:"""
-    model = 'gemma-4-31b-it'
-    response = client.models.generate_content(
-        model=model, contents=prompt
-    )
-    return response.text
-
-movie_file_path = "/home/migueldor/rag-search-engine/data/movies.json"
+movie_file_path = os.path.join(wd, "data", "movies.json")
 
 def normalize(scores):
     if len(scores) == 0:
@@ -173,13 +80,14 @@ def rrf_search(query, k, limit, method=None, rerank=None):
         for movie in results:
             index = int(movie['id']) - 1
             doc = movies[index]
-            #print(doc)
+            
             try:
                 movie['re-rank'] = float(gemini_reranker(query, doc))
                 print(movie['re-rank'])
             except ServerError:
                 movie['re-rank'] = 0.0
                 print(f'the movie {movie['title']} cannnot be re-ranked')
+            time.sleep(3)
             
         sorted_movie_scores = sorted(results, key=lambda x: x['re-rank'], reverse=True)
         
@@ -191,7 +99,64 @@ def rrf_search(query, k, limit, method=None, rerank=None):
             print(f"\n{i+1}. ({ID}) {TITLE} (rank: {RANK})")
             print(f"   {DOCUMENT}...")
             print(                             )
+    elif rerank == "batch":
+        results = my_hybrid_search.rrf_search(query, k, 5*limit)
+        doc_list_str = ""
+        for movie in results:
+            index = int(movie['id']) - 1
+            doc = movies[index]
+            doc_list_str += f"{doc['title']} - {doc['description']}\n"
+        retry = 0
+        while retry < 3:
+            try:
+                batch_rerank_scores_json = gemini_reranker_batch(query, doc_list_str)
+                batch_rerank_scores_list = json.loads(batch_rerank_scores_json)
+                
+                for i in range(len(results)):
+                    results[i]['re-rank'] = float(batch_rerank_scores_list[i])
+                break
+            except ServerError:
+                print("Batch re-ranking failed due to a server error. Retrying...")
+                retry += 1
+        if retry >= 3:
+            for i in range(len(results)):
+                results[i]['re-rank'] = 0.0
+                print(f'the movie {results[i]['title']} cannnot be re-ranked')
+        
+        sorted_movie_scores = sorted(results, key=lambda x: x['re-rank'], reverse=True)
+        
+        for i in range(int(limit)):
+            ID =sorted_movie_scores[i]["id"]
+            TITLE = sorted_movie_scores[i]['title']
+            RANK = sorted_movie_scores[i]['re-rank']
+            DOCUMENT = sorted_movie_scores[i]['document']
+            print(f"\n{i+1}. ({ID}) {TITLE} (rank: {RANK})")
+            print(f"   {DOCUMENT}...")
+            print(                             )
+    elif rerank == "cross_encoder":
+        results = my_hybrid_search.rrf_search(query, k, 5*limit)
+        pairs = []
+        for movie in results:
+            index = int(movie['id']) - 1
+            doc = movies[index]
+            pairs.append([query, f"{doc.get('title', '')} - {doc.get('description', '')}"])
+            
+        cross_encoder = CrossEncoder("cross-encoder/ms-marco-TinyBERT-L2-v2")
+        rerank_scores = cross_encoder.predict(pairs)
 
+        for i in range(len(results)):
+            results[i]['re-rank'] = rerank_scores[i]
+
+        sorted_movie_scores = sorted(results, key=lambda x: x['re-rank'], reverse=True)
+        
+        for i in range(int(limit)):
+            ID =sorted_movie_scores[i]["id"]
+            TITLE = sorted_movie_scores[i]['title']
+            RANK = sorted_movie_scores[i]['re-rank']
+            DOCUMENT = sorted_movie_scores[i]['document']
+            print(f"\n{i+1}. ({ID}) {TITLE} (rank: {RANK})")
+            print(f"   {DOCUMENT}...")
+            print(                             )
     else:
         results =  my_hybrid_search.rrf_search(query, k, limit)
     

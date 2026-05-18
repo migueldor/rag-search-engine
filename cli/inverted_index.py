@@ -7,9 +7,10 @@ from collections import Counter
 import math
 from search_utils import *
 from itertools import islice
+from utils import wd
 
-movie_file_path = "/home/migueldor/rag-search-engine/data/movies.json"
-cache_path = "/home/migueldor/rag-search-engine/cache"
+movie_file_path = os.path.join(wd, "data", "movies.json")
+cache_path = os.path.join(wd, "cache")
 
 index_path = f"{cache_path}/index.pkl"
 docmap_path = f"{cache_path}/docmap.pkl"

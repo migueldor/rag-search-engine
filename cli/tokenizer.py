@@ -1,7 +1,9 @@
 from nltk.stem import PorterStemmer
 import string
+from utils import wd
+import os
 
-stopwords_file_path = "/home/migueldor/rag-search-engine/data/stopwords.txt"
+stopwords_file_path = os.path.join(wd, "data", "stopwords.txt")
 
 with open(stopwords_file_path, 'r') as stopword_file:
         stopwords = stopword_file.read()

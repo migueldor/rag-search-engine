@@ -1,0 +1,1 @@
+wd = "/Users/migueldor/projects/rag-search-engine"
