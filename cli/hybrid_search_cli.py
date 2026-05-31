@@ -1,5 +1,6 @@
 import argparse
-from hybrid_search import normalize, weighted_search, rrf_search
+from hybrid_search import normalize, weighted_search
+from rrf_search_handler import rrf_search_handler
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Hybrid Search CLI")
@@ -19,7 +20,7 @@ def main() -> None:
     rrf_search_parser.add_argument("--limit", type=int, default=5, help="")
     rrf_search_parser.add_argument("--enhance", type=str, choices=["spell", "rewrite", "expand"], help="Query enhancement method")
     rrf_search_parser.add_argument("--rerank-method", type=str, choices=["individual", "batch", "cross_encoder"], help="Query enhancement method")
-    
+    rrf_search_parser.add_argument("--evaluate", action="store_true", help="Whether to format results for evaluation")
     args = parser.parse_args()
 
     match args.command:
@@ -28,9 +29,9 @@ def main() -> None:
         case "weighted-search":
             weighted_search(args.query, args.alpha, args.limit)
         case "rrf-search":
-            rrf_search(args.query, args.k, args.limit, args.enhance, args.rerank_method)
+            rrf_search_handler(args.query, args.k, args.limit, method=args.enhance, rerank=args.rerank_method, for_eval=args.evaluate)
         case _:
             parser.print_help()
-
+    
 if __name__ == "__main__":
     main()

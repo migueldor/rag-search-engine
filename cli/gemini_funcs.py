@@ -119,3 +119,94 @@ def gemini_reranker_batch(query, doc_list_str):
         model=model, contents=prompt
     )
     return response.text
+
+def gemini_evaluator(query, formatted_results):
+    client = genai.Client(api_key=api_key)
+    prompt = f"""Rate how relevant each result is to this query on a 0-3 scale:
+
+        Query: "{query}"
+
+        Results:
+        {chr(10).join(formatted_results)}
+
+        Scale:
+        - 3: Highly relevant
+        - 2: Relevant
+        - 1: Marginally relevant
+        - 0: Not relevant
+
+        Do NOT give any numbers other than 0, 1, 2, or 3.
+
+        Return ONLY the scores in the same order you were given the documents. Return a valid JSON list, nothing else. For example:
+
+        [2, 0, 3, 2, 0, 1]"""
+    model = 'gemma-4-31b-it'
+    response = client.models.generate_content(
+        model=model, contents=prompt
+    )
+    return response.text
+
+def gemini_RAG_answer(query, retrieved_docs_str):
+    client = genai.Client(api_key=api_key)
+    prompt = f"""You are a RAG agent for Hoopla, a movie streaming service.
+        Your task is to provide a natural-language answer to the user's query based on documents retrieved during search.
+        Provide a comprehensive answer that addresses the user's query.
+
+        Query: {query}
+
+        Documents:
+        {retrieved_docs_str}
+
+        Answer:"""
+    model = 'gemma-4-31b-it'
+    response = client.models.generate_content(
+        model=model, contents=prompt
+    )
+    return response.text
+
+def gemini_summarizer(query, results):
+    client = genai.Client(api_key=api_key)
+    prompt = f"""Provide information useful to the query below by synthesizing data from multiple search results in detail.
+
+        The goal is to provide comprehensive information so that users know what their options are.
+        Your response should be information-dense and concise, with several key pieces of information about the genre, plot, etc. of each movie.
+
+        This should be tailored to Hoopla users. Hoopla is a movie streaming service.
+
+        Query: {query}
+
+        Search results:
+        {results}
+
+        Provide a comprehensive 3–4 sentence answer that combines information from multiple sources:"""
+    model = 'gemma-4-31b-it'
+    response = client.models.generate_content(
+        model=model, contents=prompt
+    )
+    return response.text
+
+def gemini_citator(query, retrieved_docs_str):
+    client = genai.Client(api_key=api_key)
+    prompt =  f"""Answer the query below and give information based on the provided documents.
+
+        The answer should be tailored to users of Hoopla, a movie streaming service.
+        If not enough information is available to provide a good answer, say so, but give the best answer possible while citing the sources available.
+
+        Query: {query}
+
+        Documents:
+        {retrieved_docs_str}
+
+        Instructions:
+        - Provide a comprehensive answer that addresses the query
+        - Cite sources in the format [1], [2], etc. when referencing information
+        - If sources disagree, mention the different viewpoints
+        - If the answer isn't in the provided documents, say "I don't have enough information"
+        - Be direct and informative
+
+        Answer:"""
+    model = 'gemma-4-31b-it'
+    response = client.models.generate_content(
+        model=model, contents=prompt
+    )
+    return response.text

@@ -1,16 +1,8 @@
-import json
-import os
-from sentence_transformers import CrossEncoder
 from inverted_index import InvertedIndex
 from lib.semantic_search import ChunkedSemanticSearch
 from load_movies import movie_loader
 import os
-from dotenv import load_dotenv
-from google import genai
-import time
-from google.genai.errors import ServerError
 from utils import wd
-from gemini_funcs import gemini_spell_checker, gemini_rewriter, gemini_expander, gemini_reranker, gemini_reranker_batch
 
 movie_file_path = os.path.join(wd, "data", "movies.json")
 
@@ -60,114 +52,7 @@ def search_result_rrf(search_result, k):
         rrf_results[id_list[i]] = rrf_score(k, i+1)
     return rrf_results
 
-def rrf_search(query, k, limit, method=None, rerank=None):
-    movies = movie_loader(movie_file_path)
-    my_hybrid_search = HybridSearch(movies)
-    if method == "spell":
-        enhanced_query = gemini_spell_checker(query)
-        results =  my_hybrid_search.rrf_search(enhanced_query, k, limit)
-        print(f"Enhanced query ({method}): '{query}' -> '{enhanced_query}'\n")
-    elif method == "rewrite":
-        enhanced_query = gemini_rewriter(query)
-        results =  my_hybrid_search.rrf_search(enhanced_query, k, limit)
-        print(f"Enhanced query ({method}): '{query}' -> '{enhanced_query}'\n")
-    elif method == "expand":
-        enhanced_query = gemini_expander(query)
-        results =  my_hybrid_search.rrf_search(enhanced_query, k, limit)
-        print(f"Enhanced query ({method}): '{query}' -> '{enhanced_query}'\n")
-    if rerank == "individual":
-        results = my_hybrid_search.rrf_search(query, k, 5*limit)
-        for movie in results:
-            index = int(movie['id']) - 1
-            doc = movies[index]
-            
-            try:
-                movie['re-rank'] = float(gemini_reranker(query, doc))
-                print(movie['re-rank'])
-            except ServerError:
-                movie['re-rank'] = 0.0
-                print(f'the movie {movie['title']} cannnot be re-ranked')
-            time.sleep(3)
-            
-        sorted_movie_scores = sorted(results, key=lambda x: x['re-rank'], reverse=True)
-        
-        for i in range(int(limit)):
-            ID =sorted_movie_scores[i]["id"]
-            TITLE = sorted_movie_scores[i]['title']
-            RANK = sorted_movie_scores[i]['re-rank']
-            DOCUMENT = sorted_movie_scores[i]['document']
-            print(f"\n{i+1}. ({ID}) {TITLE} (rank: {RANK})")
-            print(f"   {DOCUMENT}...")
-            print(                             )
-    elif rerank == "batch":
-        results = my_hybrid_search.rrf_search(query, k, 5*limit)
-        doc_list_str = ""
-        for movie in results:
-            index = int(movie['id']) - 1
-            doc = movies[index]
-            doc_list_str += f"{doc['title']} - {doc['description']}\n"
-        retry = 0
-        while retry < 3:
-            try:
-                batch_rerank_scores_json = gemini_reranker_batch(query, doc_list_str)
-                batch_rerank_scores_list = json.loads(batch_rerank_scores_json)
-                
-                for i in range(len(results)):
-                    results[i]['re-rank'] = float(batch_rerank_scores_list[i])
-                break
-            except ServerError:
-                print("Batch re-ranking failed due to a server error. Retrying...")
-                retry += 1
-        if retry >= 3:
-            for i in range(len(results)):
-                results[i]['re-rank'] = 0.0
-                print(f'the movie {results[i]['title']} cannnot be re-ranked')
-        
-        sorted_movie_scores = sorted(results, key=lambda x: x['re-rank'], reverse=True)
-        
-        for i in range(int(limit)):
-            ID =sorted_movie_scores[i]["id"]
-            TITLE = sorted_movie_scores[i]['title']
-            RANK = sorted_movie_scores[i]['re-rank']
-            DOCUMENT = sorted_movie_scores[i]['document']
-            print(f"\n{i+1}. ({ID}) {TITLE} (rank: {RANK})")
-            print(f"   {DOCUMENT}...")
-            print(                             )
-    elif rerank == "cross_encoder":
-        results = my_hybrid_search.rrf_search(query, k, 5*limit)
-        pairs = []
-        for movie in results:
-            index = int(movie['id']) - 1
-            doc = movies[index]
-            pairs.append([query, f"{doc.get('title', '')} - {doc.get('description', '')}"])
-            
-        cross_encoder = CrossEncoder("cross-encoder/ms-marco-TinyBERT-L2-v2")
-        rerank_scores = cross_encoder.predict(pairs)
-
-        for i in range(len(results)):
-            results[i]['re-rank'] = rerank_scores[i]
-
-        sorted_movie_scores = sorted(results, key=lambda x: x['re-rank'], reverse=True)
-        
-        for i in range(int(limit)):
-            ID =sorted_movie_scores[i]["id"]
-            TITLE = sorted_movie_scores[i]['title']
-            RANK = sorted_movie_scores[i]['re-rank']
-            DOCUMENT = sorted_movie_scores[i]['document']
-            print(f"\n{i+1}. ({ID}) {TITLE} (rank: {RANK})")
-            print(f"   {DOCUMENT}...")
-            print(                             )
-    else:
-        results =  my_hybrid_search.rrf_search(query, k, limit)
     
-        for i in range(int(limit)):
-            ID = results[i]["id"]
-            TITLE = results[i]['title']
-            SCORE = results[i]['score']
-            DOCUMENT = results[i]['document']
-            print(f"\n{i+1}. ({ID}) {TITLE} (score: {SCORE})")
-            print(f"   {DOCUMENT}...")
-            print(                             )
 
 class HybridSearch:
     def __init__(self, documents):
